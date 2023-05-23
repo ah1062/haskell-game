@@ -1,48 +1,60 @@
 module Main where
 
-import Data.Char
-import qualified Data.Set as S
+import Data.Char (toUpper)
+import Data.Maybe
 
 import Graphics.Gloss
-import Graphics.Gloss.Interface.Pure.Game
+import Graphics.Gloss.Interface.IO.Game
+
+data World = World {
+  worldPlayer :: Player,
+  worldBounds :: Vector
+}
 
 data Player = Player {
-  playerActions  :: S.Set Char,
-  playerPosition :: Point
-                     }
+  playerColor    :: Color,
+  playerPosition :: Point,
+  playerKey      :: Maybe Key
+}
 
 translateP :: Point -> Point -> Point
 translateP (x,y) (x2,y2) = (x+x2, y+y2)
 
 window :: Display
-window = InWindow "haskell-game" (500, 500) (50, 50)
+window = InWindow "haskell-game" (600, 600) (50, 50)
 
 bg :: Color
 bg = light black
 
-drawing :: Player -> Picture
-drawing p = pictures [ uncurry translate (playerPosition p) $ color green $ circleSolid 10  ]
+fps :: Int
+fps = 30
 
-handleKeyPress :: Event -> Player -> Player
-handleKeyPress (EventKey (Char c) Down _ _) player
-  | toUpper c == 'W'    = Player (S.insert c (playerActions player)) (translateP (playerPosition player) (0, 10))
-  | toUpper c == 'A'    = Player (S.insert c (playerActions player)) (translateP (playerPosition player) (-10, 0))
-  | toUpper c == 'S'    = Player (S.insert c (playerActions player)) (translateP (playerPosition player) (0, -10))
-  | toUpper c == 'D'    = Player (S.insert c (playerActions player)) (translateP (playerPosition player) (10, 0))
-  | otherwise           = player
-handleKeyPress (EventKey (Char c) Up _ _) player = Player (S.delete c (playerActions player)) (playerPosition player)
-handleKeyPress _ player = player
+initialState :: Player 
+initialState = Player red (0, 0) Nothing
 
-timestep :: Float -> Player -> Player
-timestep t player = do
-  let acts = S.toList (playerActions player)
-  handleActions player acts
-    where handleActions :: Player -> [Char] -> Player
-	  handleActions p []     = p
-	  handleActions p (c:cs) = handleActions (handleKeyPress (EventKey (Char c) Down (Modifiers Up Up Up) (0,0)) p) cs 
+drawing :: Player -> IO Picture
+drawing p = return $ pictures [ 
+                                 uncurry translate (playerPosition p) $ color (playerColor p) $ circleSolid 10,
+                                 color (dark white) $ pictures $ map line [ 
+                                    [(-250, 250), (250, 250)], [(250, 250), (250, -250)], [(250, -250), (-250, -250)], [(-250,-250), (-250, 250)] 
+                                                              ]
+                              ]
+
+handleEvent :: Event -> Player -> IO Player
+handleEvent (EventKey (Char c) Down _ _) p
+  | toUpper c == 'W' = return $ Player (playerColor p) (translateP (0, 10)  (playerPosition p)) (Just (Char c))
+  | toUpper c == 'S' = return $ Player (playerColor p) (translateP (0, -10) (playerPosition p)) (Just (Char c))
+  | toUpper c == 'D' = return $ Player (playerColor p) (translateP (10, 0)  (playerPosition p)) (Just (Char c))
+  | toUpper c == 'A' = return $ Player (playerColor p) (translateP (-10, 0) (playerPosition p)) (Just (Char c))
+handleEvent (EventKey (Char c) Up _ _) p = return $ Player (playerColor p) (playerPosition p) Nothing
+handleEvent _ p = return p
+
+timestep :: Float -> Player -> IO Player
+timestep _ p = 
+  case playerKey p of
+    Just key -> do
+      handleEvent (EventKey key Down (Modifiers Up Up Up) (0,0)) p
+    Nothing -> return p
 
 main :: IO ()
-main = do
-  let player = Player S.empty (0, 0)
-  
-  play window bg 60 player drawing handleKeyPress timestep
+main = playIO window bg fps initialState drawing handleEvent timestep
